@@ -144,6 +144,7 @@ export default function ResultPage() {
       <div style={{ position: "fixed", left: -9999, top: 0, pointerEvents: "none", zIndex: 0 }}>
         <div ref={shareCardRef}>
           <ShareCard
+            name={result?.name ?? ""}
             archetype={archetype}
             archetypeName={data.name}
             description={data.description}
@@ -176,7 +177,7 @@ export default function ResultPage() {
             <ArchetypeIcon type={archetype} />
             <div className="flex flex-col items-center text-center">
               <p className="text-[14px] font-normal text-[#1e1e1e] tracking-[-0.42px] leading-[1.3]">
-                Archetype kamu
+                {result?.name ? `${result.name}'s archetype is` : "Archetype kamu"}
               </p>
               <h1 className="text-[32px] font-bold text-[#1e1e1e] tracking-[-0.64px] leading-[1.05]">
                 {data.name}
@@ -201,7 +202,7 @@ export default function ResultPage() {
           <ArchetypeIcon type={archetype} />
           <div className="flex flex-col items-center text-center">
             <p className="text-[14px] font-normal text-[#1e1e1e] tracking-[-0.42px] leading-[1.3]">
-              Archetype kamu
+              {result?.name ? `${result.name}'s archetype is` : "Archetype kamu"}
             </p>
             <h1 className="text-[32px] font-bold text-[#1e1e1e] tracking-[-0.64px] leading-[1.05]">
               {data.name}

@@ -20,6 +20,7 @@ const W = 390;
 const H = 693;
 
 interface ShareCardProps {
+  name:          string;
   archetype:     ArchetypeId;
   archetypeName: string;
   description:   string;
@@ -30,6 +31,7 @@ interface ShareCardProps {
 }
 
 export default function ShareCard({
+  name,
   archetype,
   archetypeName,
   description,
@@ -158,7 +160,7 @@ export default function ShareCard({
           {/* "Saya adalah" + archetype name */}
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%" }}>
             <p style={{ margin: 0, fontSize: 14, fontWeight: 400, color: "#1e1e1e", letterSpacing: "-0.42px", lineHeight: "1.3" }}>
-              Saya adalah
+              {name ? `${name}'s archetype is` : "Archetype kamu"}
             </p>
             <p style={{ margin: 0, fontSize: 32, fontWeight: 700, color: "#1e1e1e", letterSpacing: "-0.64px", lineHeight: "1.05", textAlign: "center" }}>
               {archetypeName}
