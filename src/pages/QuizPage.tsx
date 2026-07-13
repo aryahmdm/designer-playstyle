@@ -60,7 +60,7 @@ export default function QuizPage() {
         }));
 
         saveParticipant(name, role, winner, newTotal, id, newCounts.striker, newCounts.vanguard, newCounts.overseer)
-          .catch((err) => console.error("Failed to save participant to Supabase:", err));
+          .catch((err) => console.error("Failed to save participant:", err));
 
         navigate(`/result?id=${id}`);
       }

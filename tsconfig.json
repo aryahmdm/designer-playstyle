@@ -22,9 +22,8 @@
 
     /* Path Aliases */
     "paths": {
-      "@/*": ["./src/*"],
-      "/utils/*": ["./utils/*"]
+      "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "utils"]
+  "include": ["src", "convex"]
 }

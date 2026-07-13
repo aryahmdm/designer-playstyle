@@ -1,6 +1,7 @@
-import { projectId, publicAnonKey } from "/utils/supabase/info";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../../convex/_generated/api";
 
-const BASE = `https://${projectId}.supabase.co/functions/v1/server`;
+const client = new ConvexHttpClient(import.meta.env.VITE_CONVEX_URL as string);
 
 export interface Stats {
   total: number;
@@ -28,44 +29,34 @@ export async function saveParticipant(
   empathic: number,
   strategic: number,
 ): Promise<void> {
-  const response = await fetch(`${BASE}/participants`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${publicAnonKey}`,
-    },
-    body: JSON.stringify({
-      name,
-      role,
-      email: role, // fallback for deployed server versions that check `email`
-      archetype,
-      points,
-      resultid,
-      technic,
-      empathic,
-      strategic,
-    }),
+  await client.mutation(api.participants.save, {
+    name,
+    role,
+    archetype,
+    points,
+    resultid,
+    technic,
+    empathic,
+    strategic,
   });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || `Failed to save participant: ${response.status}`);
-  }
 }
 
 export async function getResult(resultid: string): Promise<RemoteResult | null> {
-  const res = await fetch(`${BASE}/results/${resultid}`, {
-    headers: { "Authorization": `Bearer ${publicAnonKey}` },
-  });
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`Failed to fetch result: ${res.status}`);
-  return res.json();
+  const doc = await client.query(api.participants.getByResultId, { resultid });
+  if (!doc) return null;
+
+  return {
+    resultid: doc.resultid,
+    name: doc.name,
+    archetype: doc.archetype,
+    points: doc.points,
+    role: doc.role,
+    technic: doc.technic,
+    empathic: doc.empathic,
+    strategic: doc.strategic,
+  };
 }
 
 export async function getStats(): Promise<Stats> {
-  const res = await fetch(`${BASE}/stats`, {
-    headers: { "Authorization": `Bearer ${publicAnonKey}` },
-  });
-  if (!res.ok) throw new Error(`Failed to fetch stats: ${res.status}`);
-  return res.json();
+  return client.query(api.participants.stats, {});
 }
