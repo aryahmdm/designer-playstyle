@@ -1,8 +1,18 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router";
+import { motion } from "motion/react";
 import { ArrowLeft } from "lucide-react";
+import { ImageWithFallback } from "@/components/ImageWithFallback";
 import { QUESTIONS, getArchetypeFromCounts, type ArchetypeId } from "@/lib/quizData";
 import { saveParticipant } from "@/lib/api";
+import { rememberResultId } from "@/lib/session";
+
+import imgGizalab from "@/assets/gizalab-logo.png";
+
+const RUBIK = "Rubik, sans-serif";
+
+// Slide-down entrance: background sweeps in from above, content follows.
+const SLIDE = { duration: 0.6, ease: [0.22, 1, 0.36, 1] } as const;
 
 export default function QuizPage() {
   const navigate = useNavigate();
@@ -50,6 +60,7 @@ export default function QuizPage() {
 
         sessionStorage.setItem("participant_archetype", winner);
         sessionStorage.setItem("participant_points", String(newTotal));
+        rememberResultId(id);
         sessionStorage.setItem(`result_${id}`, JSON.stringify({
           archetype: winner,
           name,
@@ -81,79 +92,142 @@ export default function QuizPage() {
     }
   };
 
+  const progressPct = ((currentQ + 1) / QUESTIONS.length) * 100;
+
   return (
-    <div
-      className="min-h-screen bg-white flex flex-col max-w-[390px] mx-auto"
-      style={{ fontFamily: "Inter, sans-serif" }}
-    >
-      {/* Header */}
-      <header className="flex flex-col gap-2 px-4 pt-6 pb-4 shrink-0">
-        <div className="flex items-center justify-between">
-          <button
-            onClick={handleBack}
-            className="flex items-center gap-1 bg-[#1e1e1e]/[0.12] rounded-[6px] px-3 py-2 text-[16px] font-medium text-[#1e1e1e] tracking-[-0.32px] cursor-pointer"
-          >
-            <ArrowLeft size={16} strokeWidth={2} />
-            Back
-          </button>
-          <span className="text-[16px] font-medium text-[#1e1e1e] tracking-[-0.32px]">
-            {currentQ + 1} of {QUESTIONS.length}
-          </span>
-        </div>
-        {/* Progress bar */}
-        <div className="h-[4px] rounded-[4px] bg-[rgba(30,30,30,0.12)] w-full overflow-hidden">
-          <div
-            className="h-full bg-[#2fb228] rounded-[4px] transition-all duration-300"
-            style={{ width: `${((currentQ + 1) / QUESTIONS.length) * 100}%` }}
-          />
-        </div>
-      </header>
-
-      {/* Real-time stats 
-      <div className="px-4 py-2">
-        <StatRow
-          technic={counts.striker}
-          empathic={counts.vanguard}
-          strategic={counts.overseer}
+    <div className="relative min-h-screen overflow-hidden">
+      {/* Background — white base with the sky gradient rising from the bottom.
+          Settled before the content arrives. */}
+      <div aria-hidden className="absolute inset-0 bg-white pointer-events-none">
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundImage:
+              "linear-gradient(to bottom, rgba(152,212,254,0) 72.648%, #98d4fe 100%)",
+          }}
         />
-      </div>*/}
-
-      {/* Question text */}
-      <div className="flex-1 flex items-start justify-center px-4 pt-14 pb-6">
-        <p className="text-[32px] font-medium text-[#1e1e1e] text-center tracking-[-0.64px] leading-[1.1]">
-          {question.text}
-        </p>
       </div>
 
-      {/* Answers */}
-      <div className="flex flex-col gap-3 shrink-0 px-[16px] pt-[24px] pb-[92px]">
-        {question.answers.map((answer, i) => {
-          const label = ["A", "B", "C"][i];
-          const isSelected = selected === i;
-          return (
-            <button
-              key={i}
-              onClick={() => handleAnswer(i)}
-              disabled={selected !== null}
-              className={`
-                w-full min-h-[52px] rounded-[6px]
-                flex items-center gap-3 p-4
-                border border-solid border-[#4d49fc] bg-[#4d49fc]/[0.12]
-                text-[#1e1e1e] transition-all duration-200 cursor-pointer text-left
-                ${isSelected ? "opacity-75 scale-[0.98]" : ""}
-                ${selected !== null && !isSelected ? "opacity-40" : ""}
-              `}
+      {/* Foreground — centered 390px column */}
+      <div className="relative flex flex-col min-h-screen max-w-[390px] mx-auto">
+        {/* Top bar + question slide down from above, over the settled background */}
+        <motion.div
+          className="flex flex-col"
+          initial={{ y: "-100%" }}
+          animate={{ y: 0 }}
+          transition={SLIDE}
+        >
+        {/* Top bar: back + progress */}
+        <header className="flex items-center gap-[12px] p-[16px] shrink-0">
+          <button
+            onClick={handleBack}
+            aria-label="Back"
+            className="flex items-center p-[4px] rounded-[6px] shrink-0 cursor-pointer transition-opacity hover:opacity-70"
+          >
+            <ArrowLeft size={28} strokeWidth={2.14} color="#727272" />
+          </button>
+
+          <div className="flex-1 min-w-px h-[16px] relative rounded-[100px] overflow-hidden">
+            {/* Track */}
+            <div
+              className="absolute inset-0 rounded-[100px]"
+              style={{
+                backgroundImage:
+                  "linear-gradient(to bottom, #dededc 0%, #d6d6d4 50%, #cecece 100%)",
+              }}
+            />
+            {/* Filled */}
+            <div
+              className="absolute left-0 top-0 bottom-0 rounded-[100px] overflow-hidden transition-[width] duration-300 ease-out"
+              style={{ width: `${progressPct}%` }}
             >
-              {/* Letter badge */}
-              <span className="shrink-0 size-6 rounded-[4px] bg-[rgba(77,73,252,0.24)] border border-[#4d49fc] flex items-center justify-center text-[12px] font-semibold text-[#4d49fc] tracking-[-0.24px] leading-none">
-                {label}
-              </span>
-              <span className="flex-1 text-[16px] font-medium tracking-[-0.32px] leading-[1.3]">
-                {answer.text}
-              </span>
-            </button>
-          );
-        })}
+              <div
+                aria-hidden
+                className="absolute inset-0 rounded-[100px] pointer-events-none"
+                style={{ backgroundImage: "linear-gradient(to top, #2fb228 0%, #2ccb24 100%)" }}
+              />
+              <div className="absolute top-[4px] left-[8px] right-[8px] h-[3px] rounded-[64px] bg-white opacity-40 blur-[1px]" />
+              <div
+                aria-hidden
+                className="absolute inset-0 rounded-[inherit] pointer-events-none"
+                style={{ boxShadow: "inset 0px 0px 4px 0px #219f34" }}
+              />
+            </div>
+          </div>
+        </header>
+
+        {/* Question + answers */}
+        <main className="flex flex-col gap-[52px] px-[16px] py-[32px]">
+          <div className="flex flex-col gap-[12px] w-full break-words" style={{ fontFamily: RUBIK }}>
+            <p className="text-[16px] font-medium text-[#727272] tracking-[-0.32px] leading-[1.05] whitespace-nowrap">
+              {currentQ + 1} dari {QUESTIONS.length}
+            </p>
+            <p className="text-[32px] font-medium text-[#383838] tracking-[-0.64px] leading-[1.1] w-full">
+              {question.text}
+            </p>
+          </div>
+
+          <div className="w-full border-2 border-solid border-[#e5e5e3] rounded-[12px] flex flex-col justify-center bg-white/40">
+            {question.answers.map((answer, i) => {
+              const label = ["A", "B", "C"][i];
+              const isSelected = selected === i;
+              const isDimmed = selected !== null && !isSelected;
+              return (
+                <button
+                  key={i}
+                  onClick={() => handleAnswer(i)}
+                  disabled={selected !== null}
+                  className={`
+                    w-full min-h-[52px] flex items-center justify-center gap-[16px] px-[16px] py-[24px]
+                    text-left cursor-pointer transition-all duration-200
+                    ${i < question.answers.length - 1 ? "border-b-2 border-solid border-[#e5e5e3]" : ""}
+                    ${i === 0 ? "rounded-t-[10px]" : ""}
+                    ${i === question.answers.length - 1 ? "rounded-b-[10px]" : ""}
+                    ${isSelected ? "bg-[rgba(102,99,254,0.12)]" : "hover:bg-[rgba(102,99,254,0.04)]"}
+                    ${isDimmed ? "opacity-40" : ""}
+                    disabled:cursor-default
+                  `}
+                >
+                  <span
+                    className="shrink-0 flex flex-col items-center justify-center p-[4px] rounded-[8px]
+                               bg-[rgba(102,99,254,0.12)] border-2 border-solid border-[#6663fe]"
+                  >
+                    <span
+                      className="w-[16px] text-center text-[16px] font-medium text-[#6663fe] tracking-[-0.32px] leading-none"
+                      style={{ fontFamily: RUBIK }}
+                    >
+                      {label}
+                    </span>
+                  </span>
+                  <span
+                    className="flex-1 min-w-px text-[18px] font-normal text-[#404040] tracking-[-0.36px] leading-none"
+                    style={{ fontFamily: RUBIK }}
+                  >
+                    {answer.text}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </main>
+        </motion.div>
+
+        {/* Credit — settled with the background, does not slide */}
+        <footer className="mt-auto h-[72px] flex items-center justify-center gap-[4px] shrink-0">
+          <span
+            className="text-[12px] font-medium text-[#404040] tracking-[-0.24px] leading-[1.05] text-center"
+            style={{ fontFamily: "Inter, sans-serif" }}
+          >
+            Made by
+          </span>
+          <div className="w-[77px] h-[20px] relative">
+            <ImageWithFallback
+              src={imgGizalab}
+              alt="Gizalab"
+              className="w-full h-full object-contain"
+            />
+          </div>
+        </footer>
       </div>
     </div>
   );

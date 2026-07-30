@@ -1,12 +1,18 @@
 import { useEffect, useState, useMemo } from "react";
+import { useNavigate } from "react-router";
 import { AnimatePresence, motion } from "motion/react";
+import { ArrowLeft } from "lucide-react";
 import { getStats, type Stats } from "@/lib/api";
 import { ARCHETYPE_DATA, type ArchetypeId } from "@/lib/quizData";
-import { FriendsOfFigmaHeader } from "@/components/FriendsOfFigmaHeader";
-import { PageFooter } from "@/components/PageFooter";
+import { getLastResultId } from "@/lib/session";
+import { ImageWithFallback } from "@/components/ImageWithFallback";
 import { ArchetypeIconSm } from "@/components/ArchetypeIcon";
 
+import imgGizalab from "@/assets/gizalab-logo.png";
+
 const ARCHETYPES: ArchetypeId[] = ["striker", "vanguard", "overseer"];
+
+const RUBIK = "Rubik, sans-serif";
 
 // Donut geometry
 const INNER_R  = 120;
@@ -15,32 +21,58 @@ const MID_R    = (INNER_R + OUTER_R) / 2; // 129.5
 const THICKNESS = OUTER_R - INNER_R;       // 19
 const CIRCUMF  = 2 * Math.PI * MID_R;     // ≈ 813.9
 const GAP_DEG  = 3;
+const CORNER_R = 4;
 
 function polarToCartesian(cx: number, cy: number, r: number, deg: number) {
   const rad = ((deg - 90) * Math.PI) / 180;
   return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
 }
 
-function describeDonutSegment(
+// Annular sector with all four corners rounded to a fixed pixel radius
+// (arc/radial edges meet at 90°, so each corner is a standard rect fillet).
+function describeRoundedDonutSegment(
   cx: number, cy: number,
   innerR: number, outerR: number,
   startDeg: number, endDeg: number,
+  cornerRadius: number,
 ) {
-  const os = polarToCartesian(cx, cy, outerR, endDeg);
-  const oe = polarToCartesian(cx, cy, outerR, startDeg);
-  const is = polarToCartesian(cx, cy, innerR, endDeg);
-  const ie = polarToCartesian(cx, cy, innerR, startDeg);
-  const large = endDeg - startDeg <= 180 ? "0" : "1";
+  const span = endDeg - startDeg;
+  const large = span <= 180 ? "0" : "1";
+  const toDeg = (rad: number) => (rad * 180) / Math.PI;
+  const maxInset = Math.max(span / 2 - 0.5, 0);
+
+  const outerInset = Math.min(toDeg(cornerRadius / outerR), maxInset);
+  const innerInset = Math.min(toDeg(cornerRadius / innerR), maxInset);
+
+  const outerStartCorner = polarToCartesian(cx, cy, outerR, startDeg);
+  const outerStartArc    = polarToCartesian(cx, cy, outerR, startDeg + outerInset);
+  const outerEndArc      = polarToCartesian(cx, cy, outerR, endDeg - outerInset);
+  const outerEndCorner   = polarToCartesian(cx, cy, outerR, endDeg);
+  const outerEndLine     = polarToCartesian(cx, cy, outerR - cornerRadius, endDeg);
+  const innerEndLine     = polarToCartesian(cx, cy, innerR + cornerRadius, endDeg);
+  const innerEndCorner   = polarToCartesian(cx, cy, innerR, endDeg);
+  const innerEndArc      = polarToCartesian(cx, cy, innerR, endDeg - innerInset);
+  const innerStartArc    = polarToCartesian(cx, cy, innerR, startDeg + innerInset);
+  const innerStartCorner = polarToCartesian(cx, cy, innerR, startDeg);
+  const innerStartLine   = polarToCartesian(cx, cy, innerR + cornerRadius, startDeg);
+  const outerStartLine   = polarToCartesian(cx, cy, outerR - cornerRadius, startDeg);
+
   return [
-    "M", os.x, os.y,
-    "A", outerR, outerR, 0, large, 0, oe.x, oe.y,
-    "L", ie.x, ie.y,
-    "A", innerR, innerR, 0, large, 1, is.x, is.y,
+    "M", outerStartArc.x, outerStartArc.y,
+    "A", outerR, outerR, 0, large, 1, outerEndArc.x, outerEndArc.y,
+    "Q", outerEndCorner.x, outerEndCorner.y, outerEndLine.x, outerEndLine.y,
+    "L", innerEndLine.x, innerEndLine.y,
+    "Q", innerEndCorner.x, innerEndCorner.y, innerEndArc.x, innerEndArc.y,
+    "A", innerR, innerR, 0, large, 0, innerStartArc.x, innerStartArc.y,
+    "Q", innerStartCorner.x, innerStartCorner.y, innerStartLine.x, innerStartLine.y,
+    "L", outerStartLine.x, outerStartLine.y,
+    "Q", outerStartCorner.x, outerStartCorner.y, outerStartArc.x, outerStartArc.y,
     "Z",
   ].join(" ");
 }
 
 export default function ArchetypesPage() {
+  const navigate = useNavigate();
   const [stats, setStats] = useState<Stats>({
     total: 0,
     counts: { striker: 0, vanguard: 0, overseer: 0 },
@@ -120,15 +152,32 @@ export default function ArchetypesPage() {
   const handleFocus = (id: ArchetypeId) =>
     setFocused(focused === id ? null : id);
 
-  return (
-    <div
-      className="min-h-screen bg-white flex flex-col max-w-[390px] mx-auto overflow-x-hidden relative"
-      style={{ fontFamily: "Inter, sans-serif" }}
-    >
-      <FriendsOfFigmaHeader />
+  // Back goes to the result the user last saw; if they never took the quiz
+  // (or the session has no result), fall back to the homepage.
+  const handleBack = () => {
+    const lastId = getLastResultId();
+    navigate(lastId ? `/result?id=${lastId}` : "/");
+  };
 
-      <div className="flex-1 flex flex-col gap-7 px-[16px] pt-[8px] pb-[24px]">
-        <h1 className="text-[32px] font-bold text-[#1e1e1e] tracking-[-0.64px] leading-[1.05] text-center">
+  return (
+    <div className="relative min-h-screen bg-white overflow-hidden">
+      <div className="relative flex flex-col min-h-screen max-w-[390px] mx-auto">
+        {/* Top bar */}
+        <header className="flex items-center p-[16px] shrink-0">
+          <button
+            onClick={handleBack}
+            aria-label="Back"
+            className="flex items-center p-[4px] rounded-[6px] shrink-0 cursor-pointer transition-opacity hover:opacity-70"
+          >
+            <ArrowLeft size={28} strokeWidth={2.14} color="#727272" />
+          </button>
+        </header>
+
+        <main className="flex flex-col gap-[28px] px-[16px] py-[24px]">
+        <h1
+          className="w-full text-[32px] font-bold text-[#383838] tracking-[-0.64px] leading-[1.05] text-center"
+          style={{ fontFamily: RUBIK }}
+        >
           Designer Playstyle
         </h1>
 
@@ -204,6 +253,7 @@ export default function ArchetypesPage() {
               </radialGradient>
 
               {/* ── Sweep masks — one animated circle per segment ── */}
+              {/* Radially oversized so it never clips the enlarged focused segment */}
               {segments.map((seg) => {
                 const targetDash = !loading ? seg.segLength : 0;
                 return (
@@ -211,7 +261,7 @@ export default function ArchetypesPage() {
                     <circle
                       cx="140" cy="140" r={MID_R}
                       fill="none" stroke="white"
-                      strokeWidth={THICKNESS + 4}
+                      strokeWidth={60}
                       strokeDasharray={`${targetDash} ${CIRCUMF}`}
                       strokeDashoffset={-seg.startOffset}
                       transform="rotate(-90 140 140)"
@@ -224,14 +274,17 @@ export default function ArchetypesPage() {
               })}
             </defs>
 
-            {/* Grey background ring */}
-            <circle
-              cx="140" cy="140" r={MID_R}
-              fill="none" stroke="rgba(30,30,30,0.08)"
-              strokeWidth={THICKNESS}
-            />
+            {/* Grey background ring — the design has no track (its segments sum to
+                100%), so this only shows when there is nothing to plot yet. */}
+            {segments.length === 0 && (
+              <circle
+                cx="140" cy="140" r={MID_R}
+                fill="none" stroke="rgba(30,30,30,0.08)"
+                strokeWidth={THICKNESS}
+              />
+            )}
 
-            {/* Gradient-filled segments revealed by their sweep mask */}
+            {/* Gradient-filled segments, corners rounded to a fixed radius, revealed by their sweep mask */}
             {segments.map((seg) => {
               const isFocused      = focused === seg.id;
               const isOtherFocused = focused !== null && focused !== seg.id;
@@ -246,7 +299,7 @@ export default function ArchetypesPage() {
               return (
                 <path
                   key={seg.id}
-                  d={describeDonutSegment(140, 140, innerR, OUTER_R, seg.startDeg + 2, seg.endDeg - 2)}
+                  d={describeRoundedDonutSegment(140, 140, innerR, OUTER_R, seg.startDeg, seg.endDeg, CORNER_R)}
                   fill={`url(#${fillId})`}
                   filter={`url(#${filterId})`}
                   mask={`url(#mask-${seg.id})`}
@@ -277,11 +330,12 @@ export default function ArchetypesPage() {
                     transition: { duration: 0.2 }
                   }}
                   className="flex flex-col items-center justify-center"
+                  style={{ fontFamily: RUBIK }}
                 >
-                  <span className="text-[64px] font-bold text-[#1e1e1e] leading-[1.05] tracking-[-1.28px]">
+                  <span className="text-[64px] font-bold text-[#383838] leading-[1.05] tracking-[-1.28px]">
                     ...
                   </span>
-                  <span className="text-[20px] font-medium text-[rgba(30,30,30,0.5)] tracking-[-0.4px] leading-[1.05]">
+                  <span className="text-[20px] font-medium text-[#808080] tracking-[-0.4px] leading-[1.05]">
                     Loading
                   </span>
                 </motion.div>
@@ -293,11 +347,12 @@ export default function ArchetypesPage() {
                   exit={{ opacity: 0, y: -8 }}
                   transition={{ duration: 0.25, ease: "easeOut" }}
                   className="flex flex-col items-center justify-center"
+                  style={{ fontFamily: RUBIK }}
                 >
-                  <span className="text-[64px] font-bold text-[#1e1e1e] leading-[1.05] tracking-[-1.28px]">
+                  <span className="text-[64px] font-bold text-[#383838] leading-[1.05] tracking-[-1.28px]">
                     {focused ? stats.counts[focused] : total}
                   </span>
-                  <span className="text-[20px] font-medium text-[rgba(30,30,30,0.5)] tracking-[-0.4px] leading-[1.05]">
+                  <span className="text-[20px] font-medium text-[#808080] tracking-[-0.4px] leading-[1.05]">
                     {focused ? ARCHETYPE_DATA[focused].name : "Partisipan"}
                   </span>
                 </motion.div>
@@ -309,13 +364,14 @@ export default function ArchetypesPage() {
                   exit={{ opacity: 0 }}
                   transition={{ duration: 0.25 }}
                   className="flex flex-col items-center justify-center gap-2"
+                  style={{ fontFamily: RUBIK }}
                 >
-                  <span className="text-[64px] font-bold text-[rgba(30,30,30,0.3)] leading-[1.05] tracking-[-1.28px]">
+                  <span className="text-[64px] font-bold text-[#d3d2d0] leading-[1.05] tracking-[-1.28px]">
                     —
                   </span>
                   <button
                     onClick={fetchStats}
-                    className="pointer-events-auto text-[13px] font-medium text-[rgba(30,30,30,0.6)] hover:text-[#1e1e1e] tracking-[-0.26px] underline underline-offset-2 cursor-pointer"
+                    className="pointer-events-auto text-[14px] font-medium text-[#808080] hover:text-[#383838] tracking-[-0.28px] underline underline-offset-2 cursor-pointer"
                   >
                     Refresh
                   </button>
@@ -326,32 +382,49 @@ export default function ArchetypesPage() {
         </div>
 
         {/* Legend */}
-        <div className="bg-white border-[1px] border-solid border-[#1e1e1e] rounded-[6px] px-3">
+        <div className="w-full bg-white border-2 border-solid border-[#e5e5e3] rounded-[12px] overflow-hidden flex flex-col items-center">
           {ARCHETYPES.map((id, i) => (
-            <div key={id}>
-              <div
-                onClick={() => handleFocus(id)}
-                className={`flex items-center gap-4 py-2 cursor-pointer transition-colors duration-150 ${
-                  focused === id ? "bg-[#1e1e1e]/[0.04]" : "hover:bg-[#1e1e1e]/[0.02]"
-                }`}
+            <button
+              key={id}
+              onClick={() => handleFocus(id)}
+              className={`
+                w-full flex items-center justify-center gap-[16px] p-[16px] text-left
+                cursor-pointer transition-colors duration-150
+                ${i < ARCHETYPES.length - 1 ? "border-b-2 border-solid border-[#e5e5e3]" : ""}
+                ${focused === id ? "bg-[rgba(102,99,254,0.08)]" : "hover:bg-[rgba(102,99,254,0.04)]"}
+              `}
+            >
+              <ArchetypeIconSm type={id} size={32} />
+              <span
+                className="flex-1 min-w-px text-[18px] font-normal text-[#404040] tracking-[-0.36px] leading-[1.05]"
+                style={{ fontFamily: RUBIK }}
               >
-                <ArchetypeIconSm type={id} size={32} />
-                <span className="flex-1 text-[16px] font-normal text-[#1e1e1e] tracking-[-0.32px] leading-[1.05]">
-                  {ARCHETYPE_DATA[id].name}
-                </span>
-                <span className="text-[16px] font-bold text-[#1e1e1e] tracking-[-0.32px] leading-[1.05] whitespace-nowrap">
-                  {total > 0 ? `${pct(id)}%` : "0%"}
-                </span>
-              </div>
-              {i < ARCHETYPES.length - 1 && (
-                <div className="h-[1px] bg-[#1e1e1e]/[0.12] w-full" />
-              )}
-            </div>
+                {ARCHETYPE_DATA[id].name}
+              </span>
+              <span
+                className="shrink-0 text-center text-[18px] font-bold text-[#404040] tracking-[-0.36px] leading-[1.05] whitespace-nowrap"
+                style={{ fontFamily: RUBIK }}
+              >
+                {total > 0 ? `${pct(id)}%` : "0%"}
+              </span>
+            </button>
           ))}
         </div>
-      </div>
+        </main>
 
-      <PageFooter />
+        {/* Credit */}
+        <footer className="mt-auto h-[72px] flex items-center justify-center gap-[4px] shrink-0">
+          <span
+            className="text-[12px] font-medium text-[#404040] tracking-[-0.24px] leading-[1.05] text-center"
+            style={{ fontFamily: "Inter, sans-serif" }}
+          >
+            Made by
+          </span>
+          <div className="w-[77px] h-[20px] relative">
+            <ImageWithFallback src={imgGizalab} alt="Gizalab" className="w-full h-full object-contain" />
+          </div>
+        </footer>
+      </div>
     </div>
   );
 }

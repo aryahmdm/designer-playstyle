@@ -1,13 +1,38 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router";
+import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { toJpeg } from "html-to-image";
 import { ARCHETYPE_DATA, type ArchetypeId } from "@/lib/quizData";
 import { getResult } from "@/lib/api";
-import { FriendsOfFigmaHeader } from "@/components/FriendsOfFigmaHeader";
-import { PageFooter } from "@/components/PageFooter";
+import { rememberResultId } from "@/lib/session";
+import { ImageWithFallback } from "@/components/ImageWithFallback";
 import { StatRow } from "@/components/StatRow";
 import { ArchetypeIcon } from "@/components/ArchetypeIcon";
+import { PrimaryButton } from "@/components/PrimaryButton";
+import { SecondaryButton } from "@/components/SecondaryButton";
+import { TertiaryButton } from "@/components/TertiaryButton";
+import { DownloadOverlay } from "@/components/DownloadOverlay";
 import ShareCard from "@/components/ShareCard";
+
+import imgStarburst from "@/assets/starburst.svg";
+import imgGizalab from "@/assets/gizalab-logo.png";
+
+const RUBIK = "Rubik, sans-serif";
+
+const SKY_GRADIENT =
+  "linear-gradient(to bottom, #98d4fe 35.096%, rgba(152,212,254,0) 100%)";
+
+// Shared easing with the rest of the app's motion language.
+const EASE = [0.22, 1, 0.36, 1] as const;
+const MOVE = { duration: 0.6, ease: EASE } as const;
+const POP = { duration: 0.6, ease: [0.34, 1.56, 0.64, 1] } as const;
+
+// How long the centered intro holds before the hero travels to its result position.
+const INTRO_HOLD_MS = 1500;
+
+// Seconds per full revolution of the background starburst. Slow enough to read as
+// ambient light rather than a spinner.
+const STAR_SPIN_SECONDS = 90;
 
 export default function ResultPage() {
   const [params] = useSearchParams();
@@ -63,17 +88,27 @@ export default function ResultPage() {
 
   const data = ARCHETYPE_DATA[archetype];
 
-  // 0 = overlay visible & archetype entering, 1 = rest sliding up, 2 = overlay gone
-  const [phase, setPhase]         = useState<0 | 1 | 2>(0);
+  // true = centered intro screen, false = settled result layout
+  const [intro, setIntro] = useState(true);
+  const reduceMotion = useReducedMotion();
   const [generating, setGenerating] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
   const shareCardRef = useRef<HTMLDivElement>(null);
 
+  // Hold the intro only once the archetype is actually known, so the hero that
+  // scales in is the correct one.
   useEffect(() => {
-    if (!result && !fetching) return;
-    const t1 = setTimeout(() => setPhase(1), 1200);
-    const t2 = setTimeout(() => setPhase(2), 1200);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
+    if (!result) return;
+    const t = setTimeout(() => setIntro(false), INTRO_HOLD_MS);
+    return () => clearTimeout(t);
   }, [result]);
+
+  // Remember this result so /archetypes can navigate back to it — covers both a
+  // freshly finished quiz and a shared result link opened directly.
+  useEffect(() => {
+    if (result && id) rememberResultId(id);
+  }, [result, id]);
 
   const handleShare = async () => {
     if (generating) return;
@@ -97,7 +132,7 @@ export default function ResultPage() {
       // Ensure all images and fonts are loaded by doing a warm-up pass
       await toJpeg(node, { ...opts, quality: 0.1 });
       await new Promise(resolve => setTimeout(resolve, 150)); // Tiny delay for filter rendering
-      
+
       const dataUrl = await toJpeg(node, opts);
       const a = document.createElement("a");
       a.href = dataUrl;
@@ -113,34 +148,91 @@ export default function ResultPage() {
     }
   };
 
+  const handleCopyUrl = async () => {
+    const url = window.location.href;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        // Clipboard API needs a secure context; fall back for plain http.
+        const ta = document.createElement("textarea");
+        ta.value = url;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      setCopied(true);
+    } catch (err) {
+      console.error("Failed to copy result URL:", err);
+      alert("Gagal menyalin URL. Coba lagi.");
+    }
+  };
+
+  // Reset the copied confirmation so the button can be used again.
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(t);
+  }, [copied]);
+
   const handleSeeAll = () => navigate("/archetypes");
+
+  const credit = (
+    <footer className="mt-auto h-[72px] flex items-center justify-center gap-[4px] shrink-0 relative">
+      <span
+        className="text-[12px] font-medium text-[#404040] tracking-[-0.24px] leading-[1.05] text-center"
+        style={{ fontFamily: "Inter, sans-serif" }}
+      >
+        Made by
+      </span>
+      <div className="w-[77px] h-[20px] relative">
+        <ImageWithFallback src={imgGizalab} alt="Gizalab" className="w-full h-full object-contain" />
+      </div>
+    </footer>
+  );
 
   if (fetching) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center max-w-[390px] mx-auto" style={{ fontFamily: "Inter, sans-serif" }}>
-        <span className="text-[20px] font-medium text-[rgba(30,30,30,0.3)] tracking-[-0.4px]">Memuat…</span>
+      <div className="relative min-h-screen bg-white overflow-hidden">
+        <div aria-hidden className="absolute top-0 left-0 right-0 h-[560px] pointer-events-none" style={{ backgroundImage: SKY_GRADIENT }} />
+        <div className="relative flex flex-col min-h-screen max-w-[390px] mx-auto">
+          <div className="flex-1 flex items-center justify-center">
+            <span className="text-[20px] font-medium text-[#727272] tracking-[-0.4px]" style={{ fontFamily: RUBIK }}>
+              Memuat…
+            </span>
+          </div>
+          {credit}
+        </div>
       </div>
     );
   }
 
   if (notFound || !result) {
     return (
-      <div className="min-h-screen bg-white flex flex-col items-center justify-center gap-4 max-w-[390px] mx-auto px-6 text-center" style={{ fontFamily: "Inter, sans-serif" }}>
-        <span className="text-[48px] font-bold text-[rgba(30,30,30,0.15)] tracking-[-1px]">—</span>
-        <p className="text-[16px] font-medium text-[rgba(30,30,30,0.5)] tracking-[-0.32px]">Hasil tidak ditemukan</p>
-        <button onClick={() => navigate("/")} className="mt-2 px-6 h-[44px] bg-[#1e1e1e] rounded-[6px] text-white text-[15px] font-medium tracking-[-0.3px] cursor-pointer">
-          Mulai Quiz
-        </button>
+      <div className="relative min-h-screen bg-white overflow-hidden">
+        <div aria-hidden className="absolute top-0 left-0 right-0 h-[560px] pointer-events-none" style={{ backgroundImage: SKY_GRADIENT }} />
+        <div className="relative flex flex-col min-h-screen max-w-[390px] mx-auto">
+          <div className="flex-1 flex flex-col items-center justify-center gap-[16px] px-[16px] text-center">
+            <p className="text-[18px] font-normal text-[#404040] tracking-[-0.54px] leading-[1.3]" style={{ fontFamily: RUBIK }}>
+              Hasil tidak ditemukan
+            </p>
+            <PrimaryButton onClick={() => navigate("/")} fullWidth={false} className="px-[24px]">
+              Mulai Quiz
+            </PrimaryButton>
+          </div>
+          {credit}
+        </div>
       </div>
     );
   }
 
   return (
-    <div
-      className="min-h-screen bg-white flex flex-col max-w-[390px] mx-auto overflow-x-hidden"
-      style={{ fontFamily: "Inter, sans-serif" }}
-    >
-      {/* ── Hidden share card rendered off-screen for html2canvas ── */}
+    <div className="relative min-h-screen bg-white overflow-hidden">
+      {/* ── Hidden share card rendered off-screen for html-to-image ── */}
       <div style={{ position: "fixed", left: -9999, top: 0, pointerEvents: "none", zIndex: 0 }}>
         <div ref={shareCardRef}>
           <ShareCard
@@ -156,106 +248,168 @@ export default function ResultPage() {
         </div>
       </div>
 
-      {/* ── Phase 0/1 overlay: archetype centered on screen ── */}
-      {phase < 2 && (
-        <div
-          className="fixed inset-0 z-50 bg-white flex flex-col items-center justify-center pointer-events-none"
-          style={{
-            transition: "opacity 800ms ease, transform 400ms ease",
-            opacity: phase === 1 ? 0 : 1,
-            transform: phase === 1 ? "translateY(-40px)" : "translateY(0)",
-          }}
-        >
-          <div
-            className="flex flex-col items-center gap-4"
-            style={{
-              transition: "opacity 500ms ease",
-              opacity: 1,
-              animation: "resultHeroIn 150ms ease both",
-            }}
-          >
-            <ArchetypeIcon type={archetype} />
-            <div className="flex flex-col items-center text-center">
-              <p className="text-[14px] font-normal text-[#1e1e1e] tracking-[-0.42px] leading-[1.3]">
-                {result?.name ? `${result.name}'s archetype is` : "Archetype kamu"}
-              </p>
-              <h1 className="text-[32px] font-bold text-[#1e1e1e] tracking-[-0.64px] leading-[1.05]">
-                {data.name}
-              </h1>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Sky gradient — taller on the intro screen, shorter once settled */}
+      <motion.div
+        aria-hidden
+        className="absolute top-0 left-0 right-0 pointer-events-none"
+        initial={false}
+        animate={{ height: intro ? 560 : 295 }}
+        transition={MOVE}
+        style={{ backgroundImage: SKY_GRADIENT }}
+      />
 
-      {/* ── Main page content ── */}
-      <div
-        className="flex-1 flex flex-col gap-6 px-[16px] py-[24px]"
-        style={{
-          transition: "opacity 400ms ease, transform 400ms ease",
-          opacity: phase >= 1 ? 1 : 0,
-          transform: phase >= 1 ? "translateY(0)" : "translateY(80px)",
-        }}
+      {/* Starburst — rises as the hero travels up */}
+      <motion.div
+        aria-hidden
+        className="absolute left-1/2 size-[1020px] pointer-events-none"
+        style={{ x: "-50%" }}
+        initial={false}
+        animate={{ top: intro ? -88 : -402 }}
+        transition={MOVE}
       >
-        <FriendsOfFigmaHeader />
-
-        <div className="flex flex-col items-center gap-4">
-          <ArchetypeIcon type={archetype} />
-          <div className="flex flex-col items-center text-center">
-            <p className="text-[14px] font-normal text-[#1e1e1e] tracking-[-0.42px] leading-[1.3]">
-              {result?.name ? `${result.name}'s archetype is` : "Archetype kamu"}
-            </p>
-            <h1 className="text-[32px] font-bold text-[#1e1e1e] tracking-[-0.64px] leading-[1.05]">
-              {data.name}
-            </h1>
+        {/* Continuous spin on its own layer, pivoting on the 1020px box centre so it
+            stays independent of the outer element's centring + travel transforms. */}
+        <motion.div
+          className="absolute inset-0"
+          animate={reduceMotion ? undefined : { rotate: 360 }}
+          transition={{ duration: STAR_SPIN_SECONDS, ease: "linear", repeat: Infinity }}
+        >
+          {/* Leaf sits slightly outside the 1020px box so the glow's blur bleed is
+              preserved at the asset's natural aspect ratio. */}
+          <div
+            className="absolute"
+            style={{ top: "-0.98%", right: "-0.88%", bottom: "-0.59%", left: "-0.88%" }}
+          >
+            <img src={imgStarburst} alt="" className="block size-full max-w-none" />
           </div>
+        </motion.div>
+      </motion.div>
+
+      {/* ── Content ── */}
+      <div className="relative flex flex-col min-h-screen max-w-[390px] mx-auto">
+        <div
+          className={
+            intro
+              ? "flex-1 flex flex-col items-center justify-center px-[16px]"
+              : "flex flex-col items-center gap-[24px] px-[16px] pt-[32px] pb-[24px]"
+          }
+        >
+          {/* Hero — scales up in place, then travels to its result position */}
+          <motion.div layout transition={MOVE} className="flex flex-col items-center gap-[16px] w-full">
+            <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={POP}>
+              <ArchetypeIcon type={archetype} size={132} />
+            </motion.div>
+
+            <div className="flex flex-col items-center gap-[4px] w-full text-center whitespace-nowrap">
+              <AnimatePresence initial={false}>
+                {!intro && (
+                  <motion.p
+                    key="label"
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    transition={MOVE}
+                    className="text-[16px] font-normal text-[#404040] tracking-[-0.48px] leading-[1.3] overflow-hidden"
+                    style={{ fontFamily: RUBIK }}
+                  >
+                    {result?.name ? `Archetype ${result.name}` : "Archetype kamu"}
+                  </motion.p>
+                )}
+              </AnimatePresence>
+              <p
+                className="text-[40px] font-bold text-[#383838] tracking-[-0.8px] leading-[1.05] text-center"
+                style={{ fontFamily: RUBIK }}
+              >
+                {data.name}
+              </p>
+            </div>
+          </motion.div>
+
+          {/* Everything below the hero fades up once the hero has settled */}
+          <AnimatePresence>
+            {!intro && (
+              <motion.div
+                key="rest"
+                initial={{ opacity: 0, y: 24 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ ...MOVE, delay: 0.15 }}
+                className="flex flex-col items-center gap-[24px] w-full"
+              >
+                <div className="flex flex-col items-center gap-[32px] w-full">
+                  {hasTraitData && (
+                    <StatRow
+                      technic={strikerCount}
+                      empathic={vanguardCount}
+                      strategic={overseerCount}
+                    />
+                  )}
+
+                  <div className="flex flex-col gap-[16px] w-full">
+                    <p
+                      className="w-full text-center text-[18px] font-normal text-[#383838] tracking-[-0.54px] leading-[1.3]"
+                      style={{ fontFamily: RUBIK }}
+                    >
+                      {data.description}
+                    </p>
+
+                    {/* Next Move card */}
+                    <div className="w-full bg-white border-2 border-solid border-[#e5e5e3] rounded-[12px] overflow-hidden flex flex-col items-center">
+                      <div className="w-full bg-[#e5e5e3] flex items-center justify-center py-[8px]">
+                        <p
+                          className="flex-1 min-w-px text-center text-[16px] font-bold text-[#404040] tracking-[-0.48px] leading-[1.3]"
+                          style={{ fontFamily: RUBIK }}
+                        >
+                          Next Move
+                        </p>
+                      </div>
+                      <div className="w-full flex items-center justify-center p-[12px]">
+                        <p
+                          className="flex-1 min-w-px text-center text-[18px] font-normal text-[#383838] tracking-[-0.54px] leading-[1.3]"
+                          style={{ fontFamily: RUBIK }}
+                        >
+                          {data.nextMove}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex flex-col gap-[12px] w-full">
+                  <PrimaryButton onClick={() => { setCopied(false); setSheetOpen(true); }}>
+                    Simpan
+                  </PrimaryButton>
+                  <SecondaryButton onClick={handleSeeAll}>
+                    Lihat Semua Archetype
+                  </SecondaryButton>
+                  <TertiaryButton onClick={() => navigate("/")}>
+                    Kembali ke Home
+                  </TertiaryButton>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
-        {hasTraitData && (
-          <StatRow
-            technic={strikerCount}
-            empathic={vanguardCount}
-            strategic={overseerCount}
-          />
-        )}
-
-        <p className="text-[16px] font-normal text-[#1e1e1e] tracking-[-0.48px] leading-[1.3] text-center">
-          {data.description}
-        </p>
-
-        <div className="bg-white border-[1px] border-solid border-[#1e1e1e] rounded-[6px] p-3 text-center">
-          <p className="text-[16px] font-bold text-[#1e1e1e] tracking-[-0.48px] leading-[1.3]">
-            Next Move:
-          </p>
-          <p className="text-[16px] font-normal text-[#1e1e1e] tracking-[-0.48px] leading-[1.3] mt-1">
-            {data.nextMove}
-          </p>
-        </div>
-
-        <div className="flex flex-col gap-3">
-          <button
-            onClick={handleShare}
-            disabled={generating}
-            className="w-full h-[52px] bg-[#1e1e1e] rounded-[6px] text-[#f5f5f5] text-[16px] font-medium tracking-[-0.32px] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed transition-opacity duration-150"
-          >
-            {generating ? "Membuat gambar…" : "Bagikan"}
-          </button>
-          <button
-            onClick={handleSeeAll}
-            className="w-full h-[48px] border-[1px] border-solid border-[#1e1e1e]/20 rounded-[6px] text-[#1e1e1e] text-[16px] font-medium tracking-[-0.32px] cursor-pointer hover:bg-[#1e1e1e]/[0.04] transition-colors duration-150"
-          >
-            Lihat semua archetype
-          </button>
-        </div>
+        {credit}
       </div>
 
-      <PageFooter />
-
-      <style>{`
-        @keyframes resultHeroIn {
-          from { opacity: 0; transform: translateY(12px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
+      {/* ── Save / share sheet ── */}
+      <AnimatePresence>
+        {sheetOpen && (
+          <DownloadOverlay
+            key="download-sheet"
+            name={result?.name ?? ""}
+            archetype={archetype}
+            archetypeName={data.name}
+            saving={generating}
+            saveLabel={generating ? "Membuat gambar…" : "Simpan Gambar"}
+            copyLabel={copied ? "URL Tersalin!" : "Salin URL"}
+            onSaveImage={handleShare}
+            onCopyUrl={handleCopyUrl}
+            onClose={() => setSheetOpen(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
